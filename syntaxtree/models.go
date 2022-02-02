@@ -4,7 +4,7 @@ import (
 	"github.com/yuin/goldmark/ast"
 )
 
-// Type is a Pog
+// Type is an int
 type Type int
 
 const (

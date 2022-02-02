@@ -5,16 +5,16 @@ import (
 	"log"
 	"os"
 
-	"./langadaptor"
-	"./syntaxtree"
+	"github.com/Reprezent/discord-api-models/langadaptor"
+	"github.com/Reprezent/discord-api-models/syntaxtree"
 )
 
 type LangAdaptor interface {
-	Generate([]*syntaxtree.Object) ([]string, error)
+	Generate(map[string]*syntaxtree.Object) ([]string, error)
 }
 
 type ASTTranslator interface {
-	Translate(data []byte) []*syntaxtree.Object
+	Translate(data []byte) map[string]*syntaxtree.Object
 }
 
 func main() {

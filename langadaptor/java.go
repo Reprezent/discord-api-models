@@ -6,12 +6,12 @@ import (
 	"strings"
 	"text/template"
 
-	"../syntaxtree"
+	"github.com/Reprezent/discord-api-models/syntaxtree"
 )
 
 type JavaAdaptor struct{}
 
-func (*JavaAdaptor) Generate(data []syntaxtree.Object) ([]string, error) {
+func (*JavaAdaptor) Generate(data map[string]*syntaxtree.Object) ([]string, error) {
 	for _, model := range data {
 		s := normalizeFileName(model.Name)
 		err := generateSourceFile(s, model)
@@ -68,7 +68,7 @@ func typeSwitch(t syntaxtree.Type) string {
 	case syntaxtree.SnowflakeArray:
 		return "String[]"
 	case syntaxtree.ReferenceArray:
-		return "?"
+		return "?[]"
 	default:
 		return "?"
 	}
@@ -108,14 +108,13 @@ public class {{normalize .Name}}
 {{end}}
 
 
-
     public {{normalize .Name}}(JSONObject data)
     {
 {{range .Fields}}        {{$name := n .Name}}        parse{{$name}}(data);
 {{end}}
     }
-
-{{range .Fields}}{{$name := n .Name}}    private void parse{{$name}}(JSONObject data)
+{{range .Fields}}{{$name := n .Name}}
+    private void parse{{$name}}(JSONObject data)
     {
         final String key = "{{.Name}}";
         if(!data.containsKey(key))
@@ -129,7 +128,7 @@ public class {{normalize .Name}}
 }
 `
 
-func generateSourceFile(s string, object syntaxtree.Object) error {
+func generateSourceFile(s string, object *syntaxtree.Object) error {
 	tmpl, err := template.New("JavaSource").Funcs(template.FuncMap{
 		"upper":     strings.ToUpper,
 		"caps":      func(a string) string { return strings.Title(strings.ToLower(a)) },

@@ -32,7 +32,11 @@ import (
 
 type GoldMarkTranslator struct{}
 
-func (*GoldMarkTranslator) Translate(data []byte) []Object {
+// Translate acts as our entry point when performing model adaption between
+// a Discord markdown API model and our GoldMark Abstract Syntax Tree
+// representation. It requires the Table extension as all the models within
+// the discord markdown API are within the tables!
+func (*GoldMarkTranslator) Translate(data []byte) map[string]*Object {
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.Table),
 	)
@@ -43,19 +47,6 @@ func (*GoldMarkTranslator) Translate(data []byte) []Object {
 	return translate(tables, data)
 }
 
-func ensureObject(node ast.Node, data []byte) bool {
-	lines := node.Lines()
-	for i := 0; i < lines.Len(); i++ {
-		line := lines.At(i)
-		line = line.TrimLeftSpace(data)
-		line = line.TrimRightSpace(data)
-		s := string(line.Value(data))
-		// log.Println(s)
-		return strings.Contains(strings.ToLower(s), "structure")
-	}
-
-	return false
-}
 func getTables(node ast.Node, data []byte) []markdownObject {
 	rv := make([]markdownObject, 0, 16)
 	if node.HasChildren() {
@@ -72,11 +63,27 @@ func getTables(node ast.Node, data []byte) []markdownObject {
 	return rv
 }
 
-func translate(nodes []markdownObject, data []byte) []Object {
-	rv := make([]Object, len(nodes), len(nodes))
-	for i, item := range nodes {
-		rv[i].Name = extractObjectName(item.Header, data)
-		rv[i].Fields = extractFields(item.Table, data)
+func ensureObject(node ast.Node, data []byte) bool {
+	lines := node.Lines()
+	for i := 0; i < lines.Len(); i++ {
+		line := lines.At(i)
+		line = line.TrimLeftSpace(data)
+		line = line.TrimRightSpace(data)
+		s := string(line.Value(data))
+		// log.Println(s)
+		return strings.Contains(strings.ToLower(s), "structure")
+	}
+
+	return false
+}
+
+func translate(nodes []markdownObject, data []byte) map[string]*Object {
+	rv := make(map[string]*Object)
+	for _, item := range nodes {
+		obj := new(Object)
+		obj.Name = extractObjectName(item.Header, data)
+		obj.Fields = extractFields(item.Table, data)
+		rv[obj.Name] = obj
 	}
 	return rv
 }
@@ -116,11 +123,12 @@ func extractFields(item ast.Node, data []byte) []Field {
 
 func extractType(cell ast.Node, data []byte) Type {
 	var stringTypeMapping = map[string]Type{
-		"snowflake": Snowflake,
 		"array":     Array,
+		"snowflake": Snowflake,
 		"boolean":   Bool,
 		"string":    String,
 		"integer":   Int64,
+		"object":    Reference,
 	}
 
 	cellText := string(cell.Text(data))
@@ -136,7 +144,33 @@ func extractType(cell ast.Node, data []byte) Type {
 
 	if possibleTypes.Len() == 1 {
 		rv = possibleTypes.Front().Value.(Type)
+	} else {
+		if possibleTypes.Front().Value == Array {
+			switch possibleTypes.Front().Next().Value {
+			case Bool:
+				rv = BoolArray
+			case String:
+				rv = StringArray
+			case Int64:
+				rv = Int64Array
+			case UInt64:
+				rv = UInt64Array
+			case Int32:
+				rv = Int32Array
+			case UInt32:
+				rv = UInt32Array
+			case Float:
+				rv = FloatArray
+			case Double:
+				rv = DoubleArray
+			case Snowflake:
+				rv = SnowflakeArray
+			case Reference:
+				rv = ReferenceArray
+			}
+		}
 	}
+
 	return rv
 }
 
