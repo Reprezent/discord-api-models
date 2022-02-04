@@ -51,44 +51,15 @@ func (*GoldMarkTranslator) Translate(data []byte) map[string]*Object {
 
 func getTables(node ast.Node, data []byte) []markdownObject {
 	rv := make([]markdownObject, 0, 16)
-	used := make(map[string]bool)
 	if node.HasChildren() {
 		for i := node.FirstChild(); i != nil; i = i.NextSibling() {
 			if i.Kind().String() == "Table" {
 				for current := i.PreviousSibling(); current != nil; current = current.PreviousSibling() {
 					if current.Kind().String() == "Heading" {
-						if ensureStructure(current, data) || ensureObject(current, data) {
+						if ensureLinkableType(current, data) {
 							var temp markdownObject
 							temp.Table = i
 							temp.Header = current
-							log.Printf("Found header for table '%v'", extractName(temp.Header, data))
-							if extractName(temp.Header, data) == "Team Member Object" {
-								log.Printf("Pointer for  '%v'", extractName(temp.Header, data))
-							}
-							for current_object := current; current_object != nil; current_object = current_object.PreviousSibling() {
-								if ensureObject(current_object, data) {
-									_, ok := used[extractName(current_object, data)]
-									if !ok {
-										temp.Object = current_object
-										used[extractName(current_object, data)] = true
-									} else {
-										log.Printf("Object %s already used for table '%s'", extractName(current_object, data), extractName(temp.Header, data))
-									}
-
-									break
-								}
-							}
-
-							if temp.Object == nil {
-								var attempts []string
-								for current_object := current; current_object != nil; current_object = current_object.PreviousSibling() {
-									if current_object.Kind().String() == "Heading" {
-										attempts = append(attempts, extractName(current_object, data))
-									}
-								}
-								log.Printf("Could not find object for %v -- %v", extractName(temp.Header, data), strings.Join(attempts, ", "))
-							}
-
 							rv = append(rv, temp)
 						} else {
 							log.Printf("Found table without header for %v", extractName(current, data))
@@ -115,19 +86,14 @@ func extractName(node ast.Node, data []byte) string {
 
 	return ""
 }
-func ensureStructure(node ast.Node, data []byte) bool {
+func ensureLinkableType(node ast.Node, data []byte) bool {
 	if node.Kind().String() != "Heading" {
 		return false
 	}
-	return strings.Contains(strings.ToLower(extractName(node, data)), "structure")
-}
-
-func ensureObject(node ast.Node, data []byte) bool {
-	if node.Kind().String() != "Heading" {
-		return false
-	}
-	s := extractName(node, data)
-	return strings.HasSuffix(strings.ToLower(s), "object") // && len(strings.Split(s, " ")) < 5
+	s := strings.ToLower(extractName(node, data))
+	return strings.Contains(s, "structure") ||
+		strings.Contains(s, "struct") ||
+		strings.Contains(s, "object")
 }
 
 func translate(nodes []markdownObject, data []byte) map[string]*Object {
@@ -137,14 +103,8 @@ func translate(nodes []markdownObject, data []byte) map[string]*Object {
 		log.Printf("%s is at %p", obj.Name, obj)
 		obj.Name = extractName(item.Header, data)
 		obj.Fields = extractFields(item.Table, data)
-		var objName string
-		if item.Object != nil {
-			objName = extractName(item.Object, data)
-		} else {
-			objName = extractName(item.Header, data)
-		}
-		rv[objName] = obj
-		log.Printf("%s is at %p -- %s is at %p", obj.Name, obj, objName, rv[objName])
+		rv[cleanReferenceName(obj.Name)] = obj
+		log.Printf("%s is at %p", obj.Name, obj)
 	}
 
 	var builder strings.Builder
@@ -186,6 +146,8 @@ func cleanReferenceName(reference string) string {
 		reference = strings.ReplaceAll(reference, v, "")
 	}
 	reference = strings.ReplaceAll(reference, "Objects", "Object")
+	reference = strings.ReplaceAll(reference, "Structure", "Object")
+	reference = strings.ReplaceAll(reference, "Struct", "Object")
 
 	return strings.Trim(reference, " ")
 }

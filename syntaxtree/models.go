@@ -53,7 +53,6 @@ type Field struct {
 }
 
 type markdownObject struct {
-	Object ast.Node
 	Header ast.Node
 	Table  ast.Node
 }
