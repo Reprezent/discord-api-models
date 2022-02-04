@@ -100,11 +100,11 @@ func translate(nodes []markdownObject, data []byte) map[string]*Object {
 	rv := make(map[string]*Object)
 	for _, item := range nodes {
 		obj := new(Object)
-		log.Printf("%s is at %p", obj.Name, obj)
+		// log.Printf("%s is at %p", obj.Name, obj)
 		obj.Name = extractName(item.Header, data)
 		obj.Fields = extractFields(item.Table, data)
 		rv[cleanReferenceName(obj.Name)] = obj
-		log.Printf("%s is at %p", obj.Name, obj)
+		// log.Printf("%s is at %p", obj.Name, obj)
 	}
 
 	var builder strings.Builder
@@ -128,11 +128,11 @@ func translate(nodes []markdownObject, data []byte) map[string]*Object {
 				temp, ok := rv[cleanReferenceName(i.ReferenceName)]
 				if ok {
 					i.Reference = temp
-					log.Printf("Pointer Reference '%v' found for Reference Name '%v' at %p-%p for structure '%v' at %p", i.ReferenceName, cleanReferenceName(i.ReferenceName), i.Reference, v.Fields[d].Reference, v.Name, v)
+					// log.Printf("Pointer Reference '%v' found for Reference Name '%v' at %p-%p for structure '%v' at %p", i.ReferenceName, cleanReferenceName(i.ReferenceName), i.Reference, v.Fields[d].Reference, v.Name, v)
 					v.Fields[d] = i
-					log.Printf("Pointer Reference AFTER '%v' found for Reference Name '%v' at %p-%p for structure '%v' at %p", i.ReferenceName, cleanReferenceName(i.ReferenceName), i.Reference, v.Fields[d].Reference, v.Name, v)
+					// log.Printf("Pointer Reference AFTER '%v' found for Reference Name '%v' at %p-%p for structure '%v' at %p", i.ReferenceName, cleanReferenceName(i.ReferenceName), i.Reference, v.Fields[d].Reference, v.Name, v)
 				} else {
-					log.Printf("Could not find reference for %v -- %v\n", i.ReferenceName, cleanReferenceName(i.ReferenceName))
+					log.Printf("Object '%s' Could not find reference for %v -- %v\n", v.Name, i.ReferenceName, cleanReferenceName(i.ReferenceName))
 				}
 			}
 		}
@@ -140,14 +140,30 @@ func translate(nodes []markdownObject, data []byte) map[string]*Object {
 	return rv
 }
 
+func removeTextComments(text string) string {
+	index := strings.Index(text, ",")
+	if index > 0 {
+		text = text[:index]
+	}
+
+	index = strings.Index(text, "(")
+	if index > 0 {
+		text = text[:index]
+	}
+
+	return text
+}
 func cleanReferenceName(reference string) string {
 	strings_to_remove := [...]string{"Partial", "Array Of", "?"}
 	for _, v := range strings_to_remove {
 		reference = strings.ReplaceAll(reference, v, "")
 	}
+	reference = strings.ReplaceAll(reference, "A ", "")
 	reference = strings.ReplaceAll(reference, "Objects", "Object")
 	reference = strings.ReplaceAll(reference, "Structure", "Object")
 	reference = strings.ReplaceAll(reference, "Struct", "Object")
+	reference = strings.ReplaceAll(reference, "Struct", "Object")
+	reference = removeTextComments(reference)
 
 	return strings.Trim(reference, " ")
 }
@@ -193,6 +209,8 @@ func extractType(cell ast.Node, data []byte) Type {
 		"array":       Array,
 		"snowflake":   Snowflake,
 		"id":          Snowflake,
+		"ids":         Snowflake,
+		"object ids":  Snowflake,
 		"bool ":       Bool,
 		"boolean":     Bool,
 		"string":      String,
@@ -211,7 +229,7 @@ func extractType(cell ast.Node, data []byte) Type {
 	possibleTypes := make(map[Type]bool)
 
 	for k, v := range stringTypeMapping {
-		if strings.Contains(strings.ToLower(cellText), k) {
+		if strings.Contains(removeTextComments(strings.ToLower(cellText)), k) {
 			possibleTypes[v] = true
 		}
 	}
@@ -256,6 +274,7 @@ func extractType(cell ast.Node, data []byte) Type {
 			case Reference:
 				rv = ReferenceArray
 			}
+			break
 		}
 
 		if rv == Unknown {

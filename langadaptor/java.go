@@ -59,7 +59,7 @@ func typeSwitch(f syntaxtree.Field) string {
 		if f.Reference != nil {
 			return normalizeFileName(f.Reference.Name)
 		} else {
-			log.Printf("Reference Missed: %+v", f)
+			log.Printf("Reference Missed '%+v'", f)
 			return "?"
 		}
 	case syntaxtree.BoolArray:
@@ -84,10 +84,13 @@ func typeSwitch(f syntaxtree.Field) string {
 		if f.Reference != nil {
 			return normalizeFileName(f.Reference.Name) + "[]"
 		} else {
+			log.Printf("Array Reference Missed '%+v'", f)
 			return "?[]"
 		}
 	case syntaxtree.Binary:
 		return "byte[]"
+	case syntaxtree.Timestamp:
+		return "Date"
 	default:
 		return "?"
 	}
@@ -126,7 +129,7 @@ public class {{normalize .Name}}
 {{end}}
 {{range .Fields}}{{$name := n .Name}}    public void Set{{$name}}({{t .}} {{$name}}) { this.{{$name}} = {{$name}}; }
 {{end}}
-{{range .Fields}}{{$name := n .Name}}    public {{t .}} Get{{$name}}({{t .}} {{$name}}) { return this.{{$name}}; }
+{{range .Fields}}{{$name := n .Name}}    public {{t .}} Get{{$name}}() { return this.{{$name}}; }
 {{end}}
 
 
