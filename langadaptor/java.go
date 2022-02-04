@@ -1,8 +1,8 @@
 package langadaptor
 
 import (
+	"bytes"
 	"log"
-	"os"
 	"strings"
 	"text/template"
 
@@ -11,44 +11,57 @@ import (
 
 type JavaAdaptor struct{}
 
-func (*JavaAdaptor) Generate(data map[string]*syntaxtree.Object) ([]string, error) {
+func (*JavaAdaptor) Generate(data map[string]*syntaxtree.Object) ([]string, []string, error) {
+	var filename_rv []string
+	var data_rv []string
 	for _, model := range data {
 		s := normalizeFileName(model.Name)
-		err := generateSourceFile(s, model)
+		str, err := generateSourceFile(s, model)
 		if err != nil {
-			log.Println("We ded")
+			return nil, nil, err
 		}
-
+		data_rv = append(data_rv, str)
+		filename_rv = append(filename_rv, s+".java")
 	}
-	return nil, nil
+	return filename_rv, data_rv, nil
 }
 
-func typeSwitch(t syntaxtree.Type) string {
-	switch t {
+func isReference(f syntaxtree.Field) bool {
+	return f.T == syntaxtree.Reference
+}
+
+func typeSwitch(f syntaxtree.Field) string {
+
+	switch f.T {
 	case syntaxtree.Unknown:
 		return "?"
 	case syntaxtree.Array:
 		return "[]"
 	case syntaxtree.Bool:
-		return "boolean"
+		return "Boolean"
 	case syntaxtree.String:
 		return "String"
 	case syntaxtree.Int64:
 		fallthrough
 	case syntaxtree.UInt64:
-		return "long"
+		return "Long"
 	case syntaxtree.Int32:
 		fallthrough
 	case syntaxtree.UInt32:
-		return "int"
+		return "Int"
 	case syntaxtree.Float:
-		return "float"
+		return "Float"
 	case syntaxtree.Double:
-		return "double"
+		return "Double"
 	case syntaxtree.Snowflake:
 		return "String"
 	case syntaxtree.Reference:
-		return "?"
+		if f.Reference != nil {
+			return normalizeFileName(f.Reference.Name)
+		} else {
+			log.Printf("Reference Missed: %+v", f)
+			return "?"
+		}
 	case syntaxtree.BoolArray:
 		return "boolean[]"
 	case syntaxtree.StringArray:
@@ -68,7 +81,13 @@ func typeSwitch(t syntaxtree.Type) string {
 	case syntaxtree.SnowflakeArray:
 		return "String[]"
 	case syntaxtree.ReferenceArray:
-		return "?[]"
+		if f.Reference != nil {
+			return normalizeFileName(f.Reference.Name) + "[]"
+		} else {
+			return "?[]"
+		}
+	case syntaxtree.Binary:
+		return "byte[]"
 	default:
 		return "?"
 	}
@@ -78,6 +97,9 @@ func typeSwitch(t syntaxtree.Type) string {
 func normalizeFileName(s string) string {
 	var rv string = ""
 	for _, tok := range strings.Split(s, " ") {
+		if tok == "Structure" || tok == "Object" {
+			continue
+		}
 		rv += strings.Title(strings.ToLower(tok))
 	}
 
@@ -100,17 +122,17 @@ import java.util.Optional;
 
 public class {{normalize .Name}}
 {
-{{range .Fields}}{{$name := n .Name}}    public {{if .Optional}}Optional<{{end}}{{t .T}}{{if .Optional}}>{{end}} {{$name}};
+{{range .Fields}}{{$name := n .Name}}    public {{if .Optional}}Optional<{{end}}{{t .}}{{if .Optional}}>{{end}} {{$name}};
 {{end}}
-{{range .Fields}}{{$name := n .Name}}    public void Set{{$name}}({{t .T}} {{$name}}) { this.{{$name}} = {{$name}}; }
+{{range .Fields}}{{$name := n .Name}}    public void Set{{$name}}({{t .}} {{$name}}) { this.{{$name}} = {{$name}}; }
 {{end}}
-{{range .Fields}}{{$name := n .Name}}    public {{t .T}} Get{{$name}}({{t .T}} {{$name}}) { return this.{{$name}}; }
+{{range .Fields}}{{$name := n .Name}}    public {{t .}} Get{{$name}}({{t .}} {{$name}}) { return this.{{$name}}; }
 {{end}}
 
 
     public {{normalize .Name}}(JSONObject data)
     {
-{{range .Fields}}        {{$name := n .Name}}        parse{{$name}}(data);
+{{range .Fields}}        {{$name := n .Name}}parse{{$name}}(data);
 {{end}}
     }
 {{range .Fields}}{{$name := n .Name}}
@@ -122,27 +144,29 @@ public class {{normalize .Name}}
             missingID(key);
         }
         
-        this.{{$name}} = data.get{{caps (t .T)}}(key).get{{if eq (t .T) "String"}}String{{else}}Val{{end}}();
+        this.{{$name}} = data.get{{caps (t .)}}(key).get{{if eq (t .) "String"}}String{{else if (r .)}}Object{{else}}Val{{end}}();
     }
 {{end}}
 }
 `
 
-func generateSourceFile(s string, object *syntaxtree.Object) error {
+func generateSourceFile(s string, object *syntaxtree.Object) (string, error) {
 	tmpl, err := template.New("JavaSource").Funcs(template.FuncMap{
 		"upper":     strings.ToUpper,
 		"caps":      func(a string) string { return strings.Title(strings.ToLower(a)) },
 		"n":         normalzieVariableNames,
 		"normalize": normalizeFileName,
 		"t":         typeSwitch,
+		"r":         isReference,
 	}).Parse(templateString)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
-	err = tmpl.Execute(os.Stdout, object)
+	buf := new(bytes.Buffer)
+	err = tmpl.Execute(buf, object)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
 
-	return nil
+	return buf.String(), nil
 }

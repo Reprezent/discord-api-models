@@ -1,7 +1,9 @@
 package syntaxtree
 
 import (
-	"container/list"
+	"fmt"
+	"log"
+	"sort"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -49,13 +51,51 @@ func (*GoldMarkTranslator) Translate(data []byte) map[string]*Object {
 
 func getTables(node ast.Node, data []byte) []markdownObject {
 	rv := make([]markdownObject, 0, 16)
+	used := make(map[string]bool)
 	if node.HasChildren() {
 		for i := node.FirstChild(); i != nil; i = i.NextSibling() {
-			if i.Kind().String() == "Table" && ensureObject(i.PreviousSibling(), data) {
-				var temp markdownObject
-				temp.Header = i.PreviousSibling()
-				temp.Table = i
-				rv = append(rv, temp)
+			if i.Kind().String() == "Table" {
+				for current := i.PreviousSibling(); current != nil; current = current.PreviousSibling() {
+					if current.Kind().String() == "Heading" {
+						if ensureStructure(current, data) || ensureObject(current, data) {
+							var temp markdownObject
+							temp.Table = i
+							temp.Header = current
+							log.Printf("Found header for table '%v'", extractName(temp.Header, data))
+							if extractName(temp.Header, data) == "Team Member Object" {
+								log.Printf("Pointer for  '%v'", extractName(temp.Header, data))
+							}
+							for current_object := current; current_object != nil; current_object = current_object.PreviousSibling() {
+								if ensureObject(current_object, data) {
+									_, ok := used[extractName(current_object, data)]
+									if !ok {
+										temp.Object = current_object
+										used[extractName(current_object, data)] = true
+									} else {
+										log.Printf("Object %s already used for table '%s'", extractName(current_object, data), extractName(temp.Header, data))
+									}
+
+									break
+								}
+							}
+
+							if temp.Object == nil {
+								var attempts []string
+								for current_object := current; current_object != nil; current_object = current_object.PreviousSibling() {
+									if current_object.Kind().String() == "Heading" {
+										attempts = append(attempts, extractName(current_object, data))
+									}
+								}
+								log.Printf("Could not find object for %v -- %v", extractName(temp.Header, data), strings.Join(attempts, ", "))
+							}
+
+							rv = append(rv, temp)
+						} else {
+							log.Printf("Found table without header for %v", extractName(current, data))
+						}
+						break
+					}
+				}
 			}
 		}
 	}
@@ -63,33 +103,8 @@ func getTables(node ast.Node, data []byte) []markdownObject {
 	return rv
 }
 
-func ensureObject(node ast.Node, data []byte) bool {
+func extractName(node ast.Node, data []byte) string {
 	lines := node.Lines()
-	for i := 0; i < lines.Len(); i++ {
-		line := lines.At(i)
-		line = line.TrimLeftSpace(data)
-		line = line.TrimRightSpace(data)
-		s := string(line.Value(data))
-		// log.Println(s)
-		return strings.Contains(strings.ToLower(s), "structure")
-	}
-
-	return false
-}
-
-func translate(nodes []markdownObject, data []byte) map[string]*Object {
-	rv := make(map[string]*Object)
-	for _, item := range nodes {
-		obj := new(Object)
-		obj.Name = extractObjectName(item.Header, data)
-		obj.Fields = extractFields(item.Table, data)
-		rv[obj.Name] = obj
-	}
-	return rv
-}
-
-func extractObjectName(item ast.Node, data []byte) string {
-	lines := item.Lines()
 	for i := 0; i < lines.Len(); i++ {
 		line := lines.At(i)
 		line = line.TrimLeftSpace(data)
@@ -97,56 +112,167 @@ func extractObjectName(item ast.Node, data []byte) string {
 		s := string(line.Value(data))
 		return s
 	}
+
 	return ""
+}
+func ensureStructure(node ast.Node, data []byte) bool {
+	if node.Kind().String() != "Heading" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(extractName(node, data)), "structure")
+}
+
+func ensureObject(node ast.Node, data []byte) bool {
+	if node.Kind().String() != "Heading" {
+		return false
+	}
+	s := extractName(node, data)
+	return strings.HasSuffix(strings.ToLower(s), "object") // && len(strings.Split(s, " ")) < 5
+}
+
+func translate(nodes []markdownObject, data []byte) map[string]*Object {
+	rv := make(map[string]*Object)
+	for _, item := range nodes {
+		obj := new(Object)
+		log.Printf("%s is at %p", obj.Name, obj)
+		obj.Name = extractName(item.Header, data)
+		obj.Fields = extractFields(item.Table, data)
+		var objName string
+		if item.Object != nil {
+			objName = extractName(item.Object, data)
+		} else {
+			objName = extractName(item.Header, data)
+		}
+		rv[objName] = obj
+		log.Printf("%s is at %p -- %s is at %p", obj.Name, obj, objName, rv[objName])
+	}
+
+	var builder strings.Builder
+	builder.WriteString("References:\n")
+	for k, v := range rv {
+		builder.WriteString("    - ")
+		builder.WriteString(k)
+		builder.WriteString(" - ")
+		builder.WriteString(fmt.Sprintf("%p", v))
+		builder.WriteString("\n")
+	}
+	// keys := make([]string, 0, len(rv))
+	// for k := range rv {
+	// 	keys = append(keys, k)
+	// }
+
+	log.Printf("References %s\n", builder.String())
+	for _, v := range rv {
+		for d, i := range v.Fields {
+			if i.T == Reference || i.T == ReferenceArray {
+				temp, ok := rv[cleanReferenceName(i.ReferenceName)]
+				if ok {
+					i.Reference = temp
+					log.Printf("Pointer Reference '%v' found for Reference Name '%v' at %p-%p for structure '%v' at %p", i.ReferenceName, cleanReferenceName(i.ReferenceName), i.Reference, v.Fields[d].Reference, v.Name, v)
+					v.Fields[d] = i
+					log.Printf("Pointer Reference AFTER '%v' found for Reference Name '%v' at %p-%p for structure '%v' at %p", i.ReferenceName, cleanReferenceName(i.ReferenceName), i.Reference, v.Fields[d].Reference, v.Name, v)
+				} else {
+					log.Printf("Could not find reference for %v -- %v\n", i.ReferenceName, cleanReferenceName(i.ReferenceName))
+				}
+			}
+		}
+	}
+	return rv
+}
+
+func cleanReferenceName(reference string) string {
+	strings_to_remove := [...]string{"Partial", "Array Of", "?"}
+	for _, v := range strings_to_remove {
+		reference = strings.ReplaceAll(reference, v, "")
+	}
+	reference = strings.ReplaceAll(reference, "Objects", "Object")
+
+	return strings.Trim(reference, " ")
 }
 
 func extractFields(item ast.Node, data []byte) []Field {
-	dfsPrintChildren(item, 0)
+	// dfsPrintChildren(item, 0)
 	rv := make([]Field, item.ChildCount()-1, item.ChildCount()-1)
 	// Skip the header
 	currentChild := item.FirstChild().NextSibling()
 	for i := 0; i < item.ChildCount()-1; i++ {
-		cell := currentChild.FirstChild()
-		name := string(cell.Text(data))
-		rv[i].Optional = strings.HasSuffix(name, "?")
-		rv[i].Name = strings.TrimSuffix(string(cell.Text(data)), "?")
+		fieldCell := currentChild.FirstChild()
+		fieldName := strings.ReplaceAll(string(fieldCell.Text(data)), "\\*", "")
+		rv[i].Optional = strings.HasSuffix(fieldName, "?")
+		rv[i].Name = strings.TrimSuffix(string(fieldName), "?")
 
-		cell = cell.NextSibling()
-		cellText := string(cell.Text(data))
-		rv[i].Nullable = strings.HasPrefix(cellText, "?")
-		rv[i].T = extractType(cell, data)
+		typeCell := fieldCell.NextSibling()
+		typeCellText := string(typeCell.Text(data))
+		rv[i].Nullable = strings.HasPrefix(typeCellText, "?")
+		rv[i].T = extractType(typeCell, data)
+		if rv[i].T == Reference || rv[i].T == ReferenceArray {
+			rv[i].ReferenceName = normalizeObjectReference(typeCellText)
+			log.Printf("Reference Name '%v' found for Name '%v'", rv[i].ReferenceName, rv[i].Name)
+		}
 		currentChild = currentChild.NextSibling()
 	}
 
 	return rv
 }
 
+func normalizeObjectReference(s string) string {
+	var rv string = ""
+	for _, tok := range strings.Split(s, " ") {
+		rv += strings.Title(strings.ToLower(tok)) + " "
+	}
+
+	rv = strings.Trim(rv, " ")
+
+	return rv
+}
+
 func extractType(cell ast.Node, data []byte) Type {
 	var stringTypeMapping = map[string]Type{
-		"array":     Array,
-		"snowflake": Snowflake,
-		"boolean":   Bool,
-		"string":    String,
-		"integer":   Int64,
-		"object":    Reference,
+		"array":       Array,
+		"snowflake":   Snowflake,
+		"id":          Snowflake,
+		"bool ":       Bool,
+		"boolean":     Bool,
+		"string":      String,
+		"int":         Int64,
+		"integer":     Int64,
+		"float":       Float,
+		"object":      Reference,
+		"timestamp":   Timestamp,
+		"binary":      Binary,
+		"single byte": Byte,
 	}
 
 	cellText := string(cell.Text(data))
 	rv := Unknown
 
-	possibleTypes := list.New()
+	possibleTypes := make(map[Type]bool)
 
 	for k, v := range stringTypeMapping {
-		if strings.Contains(cellText, k) {
-			possibleTypes.PushBack(v)
+		if strings.Contains(strings.ToLower(cellText), k) {
+			possibleTypes[v] = true
 		}
 	}
 
-	if possibleTypes.Len() == 1 {
-		rv = possibleTypes.Front().Value.(Type)
-	} else {
-		if possibleTypes.Front().Value == Array {
-			switch possibleTypes.Front().Next().Value {
+	keys := make([]Type, 0, len(possibleTypes))
+	for k := range possibleTypes {
+		keys = append(keys, k)
+	}
+
+	sort.Sort(&typeSorter{
+		types: keys,
+	})
+
+	if len(keys) == 1 {
+		for _, e := range keys {
+			rv = e
+		}
+	} else if len(keys) > 1 {
+		for _, e := range keys {
+			if e == Array {
+				continue
+			}
+			switch e {
 			case Bool:
 				rv = BoolArray
 			case String:
@@ -169,13 +295,19 @@ func extractType(cell ast.Node, data []byte) Type {
 				rv = ReferenceArray
 			}
 		}
+
+		if rv == Unknown {
+			log.Printf("Unknown type for %v. Have %#v\n", cellText, keys)
+		}
+	} else {
+		log.Printf("Unknown type for %v\n", cellText)
 	}
 
 	return rv
 }
 
 func dfsPrintChildren(node ast.Node, ident int) {
-	// log.Printf("%*c%s\n", ident, ' ', node.Kind().String())
+	log.Printf("%*c%s\n", ident, ' ', node.Kind().String())
 	if node.HasChildren() {
 		for i := node.FirstChild(); i != nil; i = i.NextSibling() {
 			dfsPrintChildren(i, ident+4)
