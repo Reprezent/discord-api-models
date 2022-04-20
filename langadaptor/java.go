@@ -11,6 +11,11 @@ import (
 
 type JavaAdaptor struct{}
 
+var totalMissedReferences int = 0
+var referencesFound int = 0
+var arrayReferencesMissed int = 0
+var objectReferencesMissed int = 0
+
 func (*JavaAdaptor) Generate(data map[string]*syntaxtree.Object) ([]string, []string, error) {
 	var filename_rv []string
 	var data_rv []string
@@ -23,6 +28,7 @@ func (*JavaAdaptor) Generate(data map[string]*syntaxtree.Object) ([]string, []st
 		data_rv = append(data_rv, str)
 		filename_rv = append(filename_rv, s+".java")
 	}
+	log.Printf("Found a total of:\n\t%d references\n\t%d missed references\n\t%d missed array references\n\t%d missed obect references\n", referencesFound, totalMissedReferences, arrayReferencesMissed, objectReferencesMissed)
 	return filename_rv, data_rv, nil
 }
 
@@ -56,9 +62,12 @@ func typeSwitch(f syntaxtree.Field) string {
 	case syntaxtree.Snowflake:
 		return "String"
 	case syntaxtree.Reference:
+		referencesFound++
 		if f.Reference != nil {
 			return normalizeFileName(f.Reference.Name)
 		} else {
+			totalMissedReferences++
+			objectReferencesMissed++
 			log.Printf("Reference Missed '%+v'", f)
 			return "?"
 		}
@@ -81,9 +90,12 @@ func typeSwitch(f syntaxtree.Field) string {
 	case syntaxtree.SnowflakeArray:
 		return "String[]"
 	case syntaxtree.ReferenceArray:
+		referencesFound++
 		if f.Reference != nil {
 			return normalizeFileName(f.Reference.Name) + "[]"
 		} else {
+			totalMissedReferences++
+			arrayReferencesMissed++
 			log.Printf("Array Reference Missed '%+v'", f)
 			return "?[]"
 		}

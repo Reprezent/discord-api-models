@@ -81,6 +81,7 @@ func extractName(node ast.Node, data []byte) string {
 		line = line.TrimLeftSpace(data)
 		line = line.TrimRightSpace(data)
 		s := string(line.Value(data))
+
 		return s
 	}
 
@@ -108,6 +109,7 @@ func translate(nodes []markdownObject, data []byte) map[string]*Object {
 	}
 
 	var builder strings.Builder
+
 	builder.WriteString("References:\n")
 	for k, v := range rv {
 		builder.WriteString("    - ")
@@ -121,7 +123,7 @@ func translate(nodes []markdownObject, data []byte) map[string]*Object {
 	// 	keys = append(keys, k)
 	// }
 
-	log.Printf("References %s\n", builder.String())
+	// log.Printf("References %s\n", builder.String())
 	for _, v := range rv {
 		for d, i := range v.Fields {
 			if i.T == Reference || i.T == ReferenceArray {
@@ -176,6 +178,7 @@ func extractFields(item ast.Node, data []byte) []Field {
 	for i := 0; i < item.ChildCount()-1; i++ {
 		fieldCell := currentChild.FirstChild()
 		fieldName := strings.ReplaceAll(string(fieldCell.Text(data)), "\\*", "")
+		fieldName = strings.Trim(fieldName, " ")
 		rv[i].Optional = strings.HasSuffix(fieldName, "?")
 		rv[i].Name = strings.TrimSuffix(string(fieldName), "?")
 

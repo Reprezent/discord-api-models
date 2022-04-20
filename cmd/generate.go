@@ -82,7 +82,7 @@ func entry(inputs []string, outputDirectory string) {
 
 	var totalData []byte
 	files := getAllFiles(inputs)
-	log.Printf("Files writing %v", files)
+	// log.Printf("Files writing %v", files)
 	for _, file := range files {
 		fileData, err := ioutil.ReadFile(file)
 		totalData = append(totalData, fileData...)
@@ -109,7 +109,7 @@ func entry(inputs []string, outputDirectory string) {
 
 	for i := range files {
 		p := path.Join(outputDirectory, files[i])
-		log.Printf("Writing to %v file", p)
+		// log.Printf("Writing to %v file", p)
 		err := os.MkdirAll(path.Dir(p), 0755)
 		if err != nil {
 			panic(err)
